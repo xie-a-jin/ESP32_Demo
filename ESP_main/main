@@ -1,0 +1,24 @@
+#include <Arduino.h>
+
+#define LED_PIN 2 
+
+void setup() {
+    Serial.begin(115200);
+    pinMode(LED_PIN, OUTPUT);
+    // 关灯初始化
+    digitalWrite(LED_PIN, LOW);
+    Serial.println("ESP32_AI_Ready");
+}
+
+void loop() {
+    if (Serial.available() > 0) {
+        char cmd = Serial.read();
+        
+        if (cmd == '0') {
+            digitalWrite(LED_PIN, HIGH); // 收到'0'(石头) -> 亮灯
+        } 
+        else if (cmd == '2') {
+            digitalWrite(LED_PIN, LOW);  // 收到'2'(布) -> 灭灯
+        }
+    }
+}
