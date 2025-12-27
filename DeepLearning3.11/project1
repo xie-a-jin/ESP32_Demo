@@ -1,0 +1,76 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from torch.utils.data import DataLoader, TensorDataset
+
+# 1. 强制启用 GPU 加速
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"🚀 正在使用设备: {device}")
+
+# 2. 加载数据
+data = pd.read_csv('hand_data.csv')
+X = data.iloc[:, 1:].values.astype(np.float32)  # 63个坐标 (x,y,z)
+y = data.iloc[:, 0].values.astype(np.int64)  # 标签 (0,1,2)
+
+# 划分训练集(80%)和测试集(20%)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# 转为 PyTorch 张量并搬运到 GPU
+X_train = torch.FloatTensor(X_train).to(device)
+y_train = torch.LongTensor(y_train).to(device)
+X_test = torch.FloatTensor(X_test).to(device)
+y_test = torch.LongTensor(y_test).to(device)
+
+# 封装数据加载器 (每批训练16组数据)
+train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=16, shuffle=True)
+
+
+# 3. 定义 TinyML 神经网络架构 (为 ESP32 优化)
+class TinyHandModel(nn.Module):
+    def __init__(self):
+        super(TinyHandModel, self).__init__()
+        self.fc1 = nn.Linear(63, 32)  # 输入层
+        self.fc2 = nn.Linear(32, 16)  # 隐藏层
+        self.fc3 = nn.Linear(16, 3)  # 输出层 (石头, 剪刀, 布)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+
+model = TinyHandModel().to(device)
+
+# 4. 定义损失函数和优化器
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+# 5. 开始循环训练
+print("开始在 GPU 上炼丹...")
+epochs = 100
+for epoch in range(epochs):
+    model.train()
+    for inputs, labels in train_loader:
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+    # 每 10 轮输出一次准确率
+    if (epoch + 1) % 10 == 0:
+        model.eval()
+        with torch.no_grad():
+            test_outputs = model(X_test)
+            _, predicted = torch.max(test_outputs, 1)
+            accuracy = (predicted == y_test).sum().item() / y_test.size(0)
+            print(f"轮次 [{epoch + 1}/{epochs}], 损失: {loss.item():.4f}, 测试集准确率: {accuracy * 100:.2f}%")
+
+# 6. 保存训练好的成果
+torch.save(model.state_dict(), "hand_model.pth")
+print("\n🎉 训练完成！模型已保存为: hand_model.pth")
