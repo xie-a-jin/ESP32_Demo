@@ -1,0 +1,90 @@
+import cv2
+import mediapipe as mp
+import csv
+import os
+
+# --- 1. 初始化 MediaPipe ---
+mp_hands = mp.solutions.hands
+# 这里的参数根据 3.10 环境的稳定性做了优化
+hands = mp_hands.Hands(
+    static_image_mode=False,
+    max_num_hands=1,
+    min_detection_confidence=0.7,
+    min_tracking_confidence=0.5
+)
+mp_draw = mp.solutions.drawing_utils
+
+# --- 2. 设置数据保存文件 ---
+csv_file = 'hand_data.csv'
+# 标签 + 21个点的(x, y, z)坐标，共64列
+header = ['label'] + [f'p_{i}_{axis}' for i in range(21) for axis in ['x', 'y', 'z']]
+
+# 如果文件不存在，创建并写入表头
+if not os.path.exists(csv_file):
+    with open(csv_file, 'w', newline='') as f:
+        csv.writer(f).writerow(header)
+
+# --- 3. 启动摄像头 ---
+cap = cv2.VideoCapture(0)
+counts = {0: 0, 1: 0, 2: 0}  # 统计已录制数量
+
+print("=" * 30)
+print("【数据采集启动】")
+print("操作说明：")
+print("按下 '0' 键 -> 录制 石头 (Rock)")
+print("按下 '1' 键 -> 录制 剪刀 (Scissors)")
+print("按下 '2' 键 -> 录制 布 (Paper)")
+print("按下 'q' 键 -> 退出并保存")
+print("=" * 30)
+
+while cap.isOpened():
+    success, img = cap.read()
+    if not success:
+        print("无法打开摄像头")
+        break
+
+    img = cv2.flip(img, 1)  # 镜像翻转
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    results = hands.process(img_rgb)
+
+    current_label = -1
+    key = cv2.waitKey(1) & 0xFF
+
+    # 监听按键
+    if key == ord('q'):
+        break
+    elif key == ord('0'):
+        current_label = 0
+    elif key == ord('1'):
+        current_label = 1
+    elif key == ord('2'):
+        current_label = 2
+
+    # 处理手势识别
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            # 绘制骨架
+            mp_draw.draw_landmarks(img, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+            # 如果按下了数字键，记录数据
+            if current_label != -1:
+                row = [current_label]
+                for lm in hand_landmarks.landmark:
+                    row.extend([lm.x, lm.y, lm.z])
+
+                with open(csv_file, 'a', newline='') as f:
+                    csv.writer(f).writerow(row)
+
+                counts[current_label] += 1
+                # 打印日志到后台
+                print(f"标签 {current_label} 成功录入第 {counts[current_label]} 组")
+
+    # 在图像上显示实时进度
+    info = f"Rock: {counts[0]} | Scis: {counts[1]} | Paper: {counts[2]}"
+    cv2.putText(img, info, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    cv2.imshow("Data Collection (Python 3.10 Env)", img)
+
+# 释放资源
+cap.release()
+cv2.destroyAllWindows()
+print(f"\n采集结束。数据已保存在: {os.path.abspath(csv_file)}")
